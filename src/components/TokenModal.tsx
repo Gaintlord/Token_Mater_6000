@@ -10,7 +10,8 @@ import { useState } from "react";
 const TokenModal = () => {
   async function CreateMintTrans(
     payer: WalletContextState | null,
-    decimal: number
+    decimal: number,
+    Tokenamount: number
   ) {
     if (payer == null) {
       console.log("wallet not connected");
@@ -45,12 +46,7 @@ const TokenModal = () => {
       )
     );
     //@ts-ignore
-    transaction.feePayer = payer.publicKey;
-    transaction.recentBlockhash = (
-      await connection.getLatestBlockhash()
-    ).blockhash;
-    transaction.partialSign(accountKeypair);
-    await payer.sendTransaction(transaction, connection);
+
     console.log(accountKeypair.publicKey.toBase58());
 
     const associateAccount = token.getAssociatedTokenAddressSync(
@@ -65,7 +61,7 @@ const TokenModal = () => {
       `#####################${associateAccount.toBase58()}###########3`
     );
 
-    const transaction2 = new web3.Transaction().add(
+    transaction.add(
       token.createAssociatedTokenAccountInstruction(
         //@ts-ignore
         payer.publicKey,
@@ -76,49 +72,37 @@ const TokenModal = () => {
         token.ASSOCIATED_TOKEN_PROGRAM_ID
       )
     );
-    //@ts-ignore
-    transaction2.feePayer = payer.publicKey;
-    transaction2.recentBlockhash = (
-      await connection.getLatestBlockhash()
-    ).blockhash;
-
-    try {
-      await payer.sendTransaction(transaction2, connection);
-    } catch (e) {
-      console.log(e);
-    }
 
     console.log(
       `###############assocoate account created and and paid for by you #############`
     );
 
-    const transaction3 = new web3.Transaction().add(
+    transaction.add(
       token.createMintToInstruction(
         accountKeypair.publicKey,
         associateAccount,
         //@ts-ignore
         payer.publicKey,
-        10e9 * 100000000,
+        Tokenamount * 100000000,
         [],
         programId
       )
     );
     //@ts-ignore
-    transaction3.feePayer = payer.publicKey;
-    transaction3.recentBlockhash = (
+    transaction.feePayer = payer.publicKey;
+    transaction.recentBlockhash = (
       await connection.getLatestBlockhash()
     ).blockhash;
-
-    await payer.sendTransaction(transaction3, connection);
+    transaction.partialSign(accountKeypair);
+    await payer.sendTransaction(transaction, connection);
     console.log("########## Minted To Your address ###############");
   }
 
   const [name, setName] = useState();
   const [Symbol, setSymbol] = useState();
-  const [decimal, setDecimal] = useState();
-  console.log(name);
-  console.log(Symbol);
-  console.log(decimal);
+  const [decimal, setDecimal] = useState(9);
+  const [circulation, setCirculation] = useState(10e9);
+
   const wallet = useWallet();
 
   return (
@@ -143,10 +127,16 @@ const TokenModal = () => {
             setValue={setDecimal}
             autocap="off"
           ></InputBox>
+          <InputBox
+            type="number"
+            placeholder="Circulation"
+            setValue={setCirculation}
+            autocap="off"
+          ></InputBox>
         </div>
         <div className="justify-center flex">
           <button
-            onClick={() => CreateMintTrans(wallet, 9)}
+            onClick={() => CreateMintTrans(wallet, 9, circulation)}
             className="bg-green-300 rounded-md w-2/3 h-12 text-blue-600 font-bold text-3xl "
           >
             Create
