@@ -2,7 +2,7 @@ const InputBox = (props: {
   type: string;
   placeholder: String;
   setValue: any;
-  autocap: string;
+  autocap?: string;
 }) => {
   return (
     <>

@@ -5,13 +5,16 @@ import {
   type WalletContextState,
 } from "@solana/wallet-adapter-react";
 import * as web3 from "@solana/web3.js";
+import { TokenMetadata } from "@solana/spl-token-metadata";
 import { useState } from "react";
 
 const TokenModal = () => {
   async function CreateMintTrans(
     payer: WalletContextState | null,
     decimal: number,
-    Tokenamount: number
+    Tokenamount: number,
+    name: string,
+    symbol: string
   ) {
     if (payer == null) {
       console.log("wallet not connected");
@@ -23,20 +26,24 @@ const TokenModal = () => {
     const lamports = await token.getMinimumBalanceForRentExemptAccount(
       connection
     );
-    const accountKeypair = web3.Keypair.generate();
+
+    // KeyPair for Mint account
+    const mintKeypair = web3.Keypair.generate();
     const programId = token.TOKEN_PROGRAM_ID;
 
+    // ##### STEP-1 creating acount with the new Keypairs
     const transaction = new web3.Transaction().add(
       web3.SystemProgram.createAccount({
         //@ts-ignore
         fromPubkey: payer.publicKey,
-        newAccountPubkey: accountKeypair.publicKey,
+        newAccountPubkey: mintKeypair.publicKey,
         space: token.MINT_SIZE,
         lamports,
         programId,
       }),
+      // ##### STEP-2 Initialize the mint details
       token.createInitializeMintInstruction(
-        accountKeypair.publicKey,
+        mintKeypair.publicKey,
         decimal,
         //@ts-ignore
         payer.publicKey,
@@ -45,12 +52,12 @@ const TokenModal = () => {
         programId
       )
     );
-    //@ts-ignore
 
-    console.log(accountKeypair.publicKey.toBase58());
+    console.log(mintKeypair.publicKey.toBase58());
 
+    // ##### STEP-3 createing a ATA for our token
     const associateAccount = token.getAssociatedTokenAddressSync(
-      accountKeypair.publicKey,
+      mintKeypair.publicKey,
       //@ts-ignore
       payer.publicKey,
       false,
@@ -67,7 +74,7 @@ const TokenModal = () => {
         payer.publicKey,
         associateAccount,
         payer.publicKey,
-        accountKeypair.publicKey,
+        mintKeypair.publicKey,
         programId,
         token.ASSOCIATED_TOKEN_PROGRAM_ID
       )
@@ -79,7 +86,7 @@ const TokenModal = () => {
 
     transaction.add(
       token.createMintToInstruction(
-        accountKeypair.publicKey,
+        mintKeypair.publicKey,
         associateAccount,
         //@ts-ignore
         payer.publicKey,
@@ -88,20 +95,23 @@ const TokenModal = () => {
         programId
       )
     );
+
+    // ##### STEP-3 i. add feepayer for tx, ii.add latest blockhash, iii.partialsign the transaction
     //@ts-ignore
     transaction.feePayer = payer.publicKey;
     transaction.recentBlockhash = (
       await connection.getLatestBlockhash()
     ).blockhash;
-    transaction.partialSign(accountKeypair);
+    transaction.partialSign(mintKeypair);
     await payer.sendTransaction(transaction, connection);
     console.log("########## Minted To Your address ###############");
   }
 
-  const [name, setName] = useState();
-  const [Symbol, setSymbol] = useState();
+  const [tokenName, setName] = useState("");
+  const [tokenSymbol, setSymbol] = useState("");
   const [decimal, setDecimal] = useState(9);
   const [circulation, setCirculation] = useState(10e9);
+  const [Icon, setIcon] = useState("");
 
   const wallet = useWallet();
 
@@ -134,9 +144,20 @@ const TokenModal = () => {
             autocap="off"
           ></InputBox>
         </div>
+        <div>
+          <input type="file" accept="image?*"></input>
+        </div>
         <div className="justify-center flex">
           <button
-            onClick={() => CreateMintTrans(wallet, 9, circulation)}
+            onClick={() =>
+              CreateMintTrans(
+                wallet,
+                decimal,
+                circulation,
+                tokenName,
+                tokenSymbol
+              )
+            }
             className="bg-green-300 rounded-md w-2/3 h-12 text-blue-600 font-bold text-3xl "
           >
             Create
