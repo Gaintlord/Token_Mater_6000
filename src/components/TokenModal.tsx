@@ -1,119 +1,161 @@
 import InputBox from "./InputBox";
 import * as token from "@solana/spl-token";
 import {
+  TOKEN_2022_PROGRAM_ID,
+  getMintLen,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import {
+  useConnection,
   useWallet,
   type WalletContextState,
 } from "@solana/wallet-adapter-react";
-import * as web3 from "@solana/web3.js";
-import { TokenMetadata } from "@solana/spl-token-metadata";
+
+import {
+  SystemProgram,
+  Transaction,
+  type Connection,
+  Keypair,
+} from "@solana/web3.js";
+import { pack, type TokenMetadata } from "@solana/spl-token-metadata";
 import { useState } from "react";
 
 const TokenModal = () => {
   async function CreateMintTrans(
-    payer: WalletContextState | null,
+    wallet: WalletContextState | null,
     decimal: number,
+    connection: Connection,
     Tokenamount: number,
     name: string,
     symbol: string
   ) {
-    if (payer == null) {
+    if (wallet?.publicKey == null) {
       console.log("wallet not connected");
       return;
     }
-    const connection: web3.Connection = new web3.Connection(
-      "https://api.devnet.solana.com"
-    );
-    const lamports = await token.getMinimumBalanceForRentExemptAccount(
-      connection
-    );
 
-    // KeyPair for Mint account
-    const mintKeypair = web3.Keypair.generate();
-    const programId = token.TOKEN_PROGRAM_ID;
+    const mintKeyPair = Keypair.generate();
 
-    // ##### STEP-1 creating acount with the new Keypairs
-    const transaction = new web3.Transaction().add(
-      web3.SystemProgram.createAccount({
-        //@ts-ignore
-        fromPubkey: payer.publicKey,
-        newAccountPubkey: mintKeypair.publicKey,
-        space: token.MINT_SIZE,
-        lamports,
-        programId,
-      }),
-      // ##### STEP-2 Initialize the mint details
-      token.createInitializeMintInstruction(
-        mintKeypair.publicKey,
-        decimal,
-        //@ts-ignore
-        payer.publicKey,
-        //@ts-ignore
-        payer.publicKey,
-        programId
-      )
+    const metaData: TokenMetadata = {
+      mint: mintKeyPair.publicKey,
+      name: name,
+      symbol: symbol,
+      uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json",
+      additionalMetadata: [],
+    };
+
+    const metaDataSize =
+      token.TYPE_SIZE + token.LENGTH_SIZE + pack(metaData).length;
+    //size of type +  size of actual data + realmetadata
+
+    const newMintsizeWAddedData = token.getMintLen([
+      token.ExtensionType.MetadataPointer,
+    ]);
+    console.log(newMintsizeWAddedData);
+
+    const neededLamport = await connection.getMinimumBalanceForRentExemption(
+      newMintsizeWAddedData + metaDataSize
     );
 
-    console.log(mintKeypair.publicKey.toBase58());
+    console.log(neededLamport);
 
-    // ##### STEP-3 createing a ATA for our token
-    const associateAccount = token.getAssociatedTokenAddressSync(
-      mintKeypair.publicKey,
-      //@ts-ignore
-      payer.publicKey,
+    const tx = new Transaction();
+    const createAccont = SystemProgram.createAccount({
+      fromPubkey: wallet.publicKey,
+      newAccountPubkey: mintKeyPair.publicKey,
+      space: newMintsizeWAddedData,
+      lamports: neededLamport,
+      programId: TOKEN_2022_PROGRAM_ID,
+    });
+
+    console.log("1");
+    const creatingMedaDataPointer =
+      token.createInitializeMetadataPointerInstruction(
+        mintKeyPair.publicKey,
+        wallet.publicKey,
+        mintKeyPair.publicKey,
+        TOKEN_2022_PROGRAM_ID
+      );
+    const createMetaDataAccount = token.createInitializeInstruction({
+      programId: TOKEN_2022_PROGRAM_ID,
+      mint: mintKeyPair.publicKey,
+      metadata: mintKeyPair.publicKey,
+      name: metaData.name,
+      symbol: metaData.symbol,
+      uri: metaData.uri,
+      mintAuthority: wallet.publicKey,
+      updateAuthority: wallet.publicKey,
+    });
+
+    console.log("2");
+
+    const mintInstruction = token.createInitializeMintInstruction(
+      mintKeyPair.publicKey,
+      decimal,
+      wallet.publicKey,
+      wallet.publicKey,
+      TOKEN_2022_PROGRAM_ID
+    );
+    // make a new associateToken adress
+    const associateToken = await token.getAssociatedTokenAddress(
+      mintKeyPair.publicKey,
+      wallet.publicKey,
       false,
-      programId,
-      token.ASSOCIATED_TOKEN_PROGRAM_ID
-    );
-    console.log(
-      `#####################${associateAccount.toBase58()}###########3`
+      TOKEN_2022_PROGRAM_ID
     );
 
-    transaction.add(
-      token.createAssociatedTokenAccountInstruction(
-        //@ts-ignore
-        payer.publicKey,
-        associateAccount,
-        payer.publicKey,
-        mintKeypair.publicKey,
-        programId,
-        token.ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+    console.log("3");
+    const creatATAonChain = await token.createAssociatedTokenAccountInstruction(
+      wallet.publicKey,
+      associateToken,
+      wallet.publicKey,
+      mintKeyPair.publicKey,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
-    console.log(
-      `###############assocoate account created and and paid for by you #############`
+    console.log("4");
+    const mintingInstruction = token.createMintToInstruction(
+      mintKeyPair.publicKey,
+      associateToken,
+      wallet.publicKey,
+      circulation * 10 ** decimal,
+      [],
+      TOKEN_2022_PROGRAM_ID
     );
 
-    transaction.add(
-      token.createMintToInstruction(
-        mintKeypair.publicKey,
-        associateAccount,
-        //@ts-ignore
-        payer.publicKey,
-        Tokenamount * 100000000,
-        [],
-        programId
-      )
+    console.log("5");
+    tx.add(
+      createAccont,
+      creatingMedaDataPointer,
+      mintInstruction,
+      createMetaDataAccount,
+      creatATAonChain,
+      mintingInstruction
     );
 
-    // ##### STEP-3 i. add feepayer for tx, ii.add latest blockhash, iii.partialsign the transaction
-    //@ts-ignore
-    transaction.feePayer = payer.publicKey;
-    transaction.recentBlockhash = (
-      await connection.getLatestBlockhash()
-    ).blockhash;
-    transaction.partialSign(mintKeypair);
-    await payer.sendTransaction(transaction, connection);
-    console.log("########## Minted To Your address ###############");
+    console.log("6");
+    tx.feePayer = wallet.publicKey;
+    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    tx.partialSign(mintKeyPair);
+    await wallet.sendTransaction(tx, connection);
+
+    console.log("mintaddress", mintKeyPair.publicKey.toBase58());
+
+    console.log(`##########  ${associateToken}   ############`);
+    console.log(`${circulation} ${name} Minted and are in circulation`);
+
+    //
   }
 
-  const [tokenName, setName] = useState("");
-  const [tokenSymbol, setSymbol] = useState("");
+  const [tokenName, setName] = useState("SHERCOIN");
+  const [tokenSymbol, setSymbol] = useState("SHRC");
   const [decimal, setDecimal] = useState(9);
-  const [circulation, setCirculation] = useState(10e9);
+  const [circulation, setCirculation] = useState(10e8);
   const [Icon, setIcon] = useState("");
 
   const wallet = useWallet();
+  const { connection } = useConnection();
 
   return (
     <>
@@ -153,6 +195,7 @@ const TokenModal = () => {
               CreateMintTrans(
                 wallet,
                 decimal,
+                connection,
                 circulation,
                 tokenName,
                 tokenSymbol
